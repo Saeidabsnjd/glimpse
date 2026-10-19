@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large binary files & PDFs
+*.pdf
+
+# 3D assets & Blender auto-saves
+*.blend1
+*.blend2
+*.exr
+
+# Datasets and rendered outputs
+data/
+dataset/
+renders/
+output/
+checkpoints/
+logs/
+
+# Environments
+.env
+.venv/
+env/
+venv/
+
+# IDE / System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
