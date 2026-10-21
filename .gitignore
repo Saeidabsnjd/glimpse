@@ -12,8 +12,8 @@ __pycache__/
 *.exr
 
 # Datasets and rendered outputs
-data/
-dataset/
+/data/
+/dataset/
 renders/
 output/
 checkpoints/
