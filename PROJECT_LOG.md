@@ -12,7 +12,7 @@ When switching to the **IXLAB workstation PC at TU Dresden**, provide this file 
 * **Candidate**: Saeid Abbasnejad (ICT Engineering, University of Padova)
 * **Host Institution**: Immersive Experience Lab (IXLAB), Faculty of Computer Science, TU Dresden
 * **Supervisors**: Prof. Dr. Matthew McGinity, Florian Schier, M.Sc.
-* **Core Topic**: Real-Time Generative Neural Rendering and Single-Step Distillation for Mixed Reality
+* **Core Research Objective**: Real-Time Generative Neural Rendering and Single-Step Distillation for Mixed Reality (targeting sub-15ms inference, >60 FPS, global illumination, contact shadows, and complex optical materials including SSS)
 * **Primary Stack**: Python 3.10+, Blender 4.x/5.x (`bpy`), PyTorch (CUDA), NumPy, OpenEXR
 
 ---
@@ -24,6 +24,7 @@ glimpse/
 ├── .gitignore                      Ignore rules (ignores heavy PDFs, cache, blend1, renders)
 ├── README.md                       Project overview and environment setup
 ├── Mathematical_Foundations.md      Living mathematical derivations handbook (BSSRDF, Look-At, Pinhole)
+├── PIPELINE_OVERVIEW.md            Comprehensive end-to-end system pipeline & architecture specification
 ├── PROJECT_LOG.md                  This master engineering & continuity log
 ├── assets/
 │   └── camera_hemisphere_orbit.jpg  Scientific 3D diagram of camera orbit dome
@@ -31,7 +32,8 @@ glimpse/
     ├── __init__.py                 Root package
     ├── data/
     │   ├── __init__.py             Data generation and loader package
-    │   └── camera_orbit.py         [COMPLETED] Spherical-to-Cartesian, Look-At matrix, hemisphere orbit
+    │   ├── camera_orbit.py         [COMPLETED] Spherical-to-Cartesian, Look-At matrix, hemisphere orbit
+    │   └── dataset_engine.py       [COMPLETED] Headless Blender 5.x engine with OptiX GPU, SSS material, compositor wiring
     ├── models/
     │   └── __init__.py             [PENDING] Single-step generative neural rendering backbones
     ├── losses/
@@ -78,31 +80,43 @@ All future modules written for this codebase must strictly adhere to these verif
 
 ### Milestone 2: Camera Orbit Engine (`src/data/camera_orbit.py`)
 * **File**: [camera_orbit.py](file:///c:/Users/Saeed/.gemini/antigravity/scratch/blender/src/data/camera_orbit.py)
-* **Status**: Fully implemented and mathematically verified.
+* **Status**: Fully implemented, tested, and pushed to GitHub.
 * **Key Functions**:
-  * `spherical_to_cartesian(radius, azimuth_deg, elevation_deg)`:
-    Converts spherical angles to $(x, y, z)$ on the upper dome using horizontal slice radius $R \cdot \cos(\phi)$ and vertical height $R \cdot \sin(\phi)$.
-  * `compute_look_at_matrix(camera_pos, target_pos, world_up)`:
-    Computes unit forward vector $\mathbf{f}$, horizontal right vector $\mathbf{r} = \mathbf{f} \times \mathbf{u}_{\text{world}}$, and orthogonal up vector $\mathbf{u} = \mathbf{r} \times \mathbf{f}$. Handles singular zenith edge case.
-  * `camera_pose_to_extrinsic_4x4(position, rotation)`:
-    Assembles standard $4 \times 4$ transform matrix $[R \mid \mathbf{t}]$ for NeRF/transforms.json compatibility.
-  * `generate_hemisphere_orbit(radius, n_azimuth, n_elevation, min_el, max_el)`:
-    Generates multi-view orbits (e.g., 48 viewpoints across 12 azimuths $\times$ 4 elevations).
+  * `spherical_to_cartesian(radius, azimuth_deg, elevation_deg)`
+  * `compute_look_at_matrix(camera_pos, target_pos, world_up)`
+  * `camera_pose_to_extrinsic_4x4(position, rotation)`
+  * `generate_hemisphere_orbit(radius, n_azimuth, n_elevation, min_el, max_el)`
+
+### Milestone 3: End-to-End System Pipeline Specification (`PIPELINE_OVERVIEW.md`)
+* **File**: [PIPELINE_OVERVIEW.md](file:///c:/Users/Saeed/.gemini/antigravity/scratch/blender/PIPELINE_OVERVIEW.md)
+* **Status**: Complete architecture specification document.
+* **Coverage**:
+  * Stage 1: Blender Ground-Truth Synthetic Data Engine (Cycles 512 spp vs 2 spp, SSS materials, G-buffers).
+  * Stage 2: Data Preprocessing & Tensor Layouts ($B \times 7 \times H \times W$, disparity $d = 1/Z$).
+  * Stage 3: Two-Stream Generative Architecture (Appearance stream, Geometry stream, SPADE / Cross-Attention fusion).
+  * Stage 4: Single-Step Generative Distillation (Rectified Flow / Consistency formulation for $<15\text{ ms}$ inference).
+  * Stage 5: Multi-Objective Loss Formulations (Charbonnier, LPIPS, Sobel edge, physical SSS translucency).
+  * Stage 6: Mixed Reality Deployment & Optimization (ONNX/TensorRT FP16 compilation for Meta Quest 3 / Vision Pro at $60+\text{ FPS}$).
+
+### Milestone 4: Automated Blender Dataset Engine (`src/data/dataset_engine.py`)
+* **File**: [dataset_engine.py](file:///c:/Users/Saeed/.gemini/antigravity/scratch/blender/src/data/dataset_engine.py)
+* **Status**: Complete headless pipeline for Blender 5.x.
+* **Key Mechanisms**:
+  * Hardware Acceleration: Explicit OptiX GPU detection targeting NVIDIA RTX workstations with CUDA fallback for Turing GTX cards.
+  * Material Calibration: Principled BSDF with calibrated human skin Subsurface Scattering (Radius: [1.0, 0.2, 0.1], Scale: 0.005m / 5mm, IOR: 1.4).
+  * Multi-Pass Compositor: Wires Cycles RenderLayers to 32-bit OpenEXR File Output node for metric Z-depth and camera-space normals (`OPEN_EXR_MULTILAYER` in 5.x).
+  * Automated Orbit Rendering: Loops over viewpoints from `camera_orbit.py`, renders paired 512-spp ground truth and 2-spp draft inputs, and exports camera intrinsics/extrinsics to `transforms.json`.
+  * **Critical Calibration (Denoising Toggle)**: Blender 5.2 enables OpenImageDenoise (`use_denoising = True`) by default. The engine now explicitly enforces `scene.cycles.use_denoising = False` on the draft pass to guarantee true raw, noisy Monte Carlo inputs while keeping `use_denoising = True` on the ground-truth reference.
 
 ---
 
-## 5. Next Immediate Milestone: The Blender Synthetic Data Engine
+## 5. Next Immediate Milestone: PyTorch Dataset Loader & Tensor Pipeline
 
-* **Target File**: `src/data/dataset_engine.py` (or `blender_render_pipeline.py`)
-* **Objective**: Automate Blender via `bpy` to render paired datasets:
-  1. Load 3D head/character asset with calibrated Subsurface Scattering (SSS) material at $(0, 0, 0)$.
-  2. Instantiate virtual camera and loop through viewpoints generated by `camera_orbit.py`.
-  3. Configure Blender Compositor node tree:
-     * **Target Ground Truth**: Cycles path-traced at 512 samples per pixel.
-     * **Input Draft**: Cycles at 2 samples per pixel (or fast EEVEE rasterizer).
-     * **Conditioning Pass 1**: Metric Z-Depth pass.
-     * **Conditioning Pass 2**: Camera-space surface normals.
-  4. Save outputs to disk in multi-layer OpenEXR / 16-bit PNG format alongside `transforms.json`.
+* **Target File**: `src/data/dataset.py`
+* **Objective**: Load and preprocess rendered datasets for model training:
+  1. OpenEXR parsing for metric depth and camera-space normals.
+  2. Inverse disparity transformation: $d = 1 / Z_{\text{cam}}$ mapped to $[0, 1]$.
+  3. Packaging into $B \times 7 \times H \times W$ conditioning tensors ready for GPU training.
 
 ---
 
