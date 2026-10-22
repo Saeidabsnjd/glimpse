@@ -104,7 +104,7 @@ All future modules written for this codebase must strictly adhere to these verif
 * **Key Mechanisms**:
   * Hardware Acceleration: Explicit OptiX GPU detection targeting NVIDIA RTX workstations with CUDA fallback for Turing GTX cards.
   * Material Calibration: Principled BSDF with calibrated human skin Subsurface Scattering (Radius: [1.0, 0.2, 0.1], Scale: 0.005m / 5mm, IOR: 1.4).
-  * Multi-Pass Compositor: Wires Cycles RenderLayers to 32-bit OpenEXR File Output node for metric Z-depth and camera-space normals (`OPEN_EXR_MULTILAYER` in 5.x).
+  * Multi-Pass Compositor: Uses dedicated dual output nodes for depth (`depth/view_XXX.exr`) and normal (`normal/view_XXX.exr`), guaranteeing unpartitioned single-part OpenEXR streams that load in sub-millisecond Python times.
   * Automated Orbit Rendering: Loops over viewpoints from `camera_orbit.py`, renders paired 512-spp ground truth and 2-spp draft inputs, and exports camera intrinsics/extrinsics to `transforms.json`.
   * **Critical Calibration (Denoising Toggle)**: Blender 5.2 enables OpenImageDenoise (`use_denoising = True`) by default. The engine now explicitly enforces `scene.cycles.use_denoising = False` on the draft pass to guarantee true raw, noisy Monte Carlo inputs while keeping `use_denoising = True` on the ground-truth reference.
 
@@ -114,19 +114,20 @@ All future modules written for this codebase must strictly adhere to these verif
 
 * **Target File**: `src/data/dataset.py`
 * **Objective**: Load and preprocess rendered datasets for model training:
-  1. OpenEXR parsing for metric depth and camera-space normals.
+  1. OpenEXR parsing for metric depth and camera-space normals via `OpenEXR` and `Imath`.
   2. Inverse disparity transformation: $d = 1 / Z_{\text{cam}}$ mapped to $[0, 1]$.
   3. Packaging into $B \times 7 \times H \times W$ conditioning tensors ready for GPU training.
 
 ---
 
-## 6. Onboarding Protocol for Antigravity on Lab PC
+## 6. Onboarding Protocol for Antigravity on Lab PC (RTX 3060 Ti)
 
-When starting work on the TU Dresden lab workstation:
-1. Clone the repository:
+When working on the TU Dresden lab workstation:
+1. Pull the latest repository:
    ```bash
-   git clone https://github.com/Saeidabsnjd/glimpse.git
-   cd glimpse
+   git pull origin main
    ```
-2. Feed this file to Antigravity with the prompt:
-   > *"I am working on the glimpse project. Read `PROJECT_LOG.md` and `Mathematical_Foundations.md`. We just completed `src/data/camera_orbit.py`. Now let's continue with Step 5: building `src/data/dataset_engine.py` in Blender."*
+2. Launch the full high-sample dataset generation on the RTX 3060 Ti:
+   ```cmd
+   "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" --background --python src\data\dataset_engine.py -- --output_dir data\orbit48_gt512 --n_azimuth 12 --n_elevation 4 --samples_gt 512 --samples_draft 2 --resolution 512
+   ```

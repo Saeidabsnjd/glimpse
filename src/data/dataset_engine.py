@@ -239,35 +239,52 @@ def setup_compositor_nodes(output_dir):
     render_layers = tree.nodes.new(type='CompositorNodeRLayers')
     render_layers.location = (0, 0)
 
-    # File Output node for G-Buffers
-    file_output = tree.nodes.new(type='CompositorNodeOutputFile')
-    file_output.location = (400, 0)
-    
-    gbuffers_dir = str(Path(output_dir).resolve() / "gbuffers")
-    os.makedirs(gbuffers_dir, exist_ok=True)
+    # Create separate output directories for depth and normal
+    depth_dir = str(Path(output_dir).resolve() / "depth")
+    normal_dir = str(Path(output_dir).resolve() / "normal")
+    os.makedirs(depth_dir, exist_ok=True)
+    os.makedirs(normal_dir, exist_ok=True)
 
-    if hasattr(file_output, "file_output_items"):
+    # 1. Depth Output Node
+    depth_node = tree.nodes.new(type='CompositorNodeOutputFile')
+    depth_node.location = (400, 100)
+
+    # 2. Normal Output Node
+    normal_node = tree.nodes.new(type='CompositorNodeOutputFile')
+    normal_node.location = (400, -100)
+
+    if hasattr(depth_node, "file_output_items"):
         # Blender 5.x API
-        file_output.directory = gbuffers_dir
-        file_output.format.file_format = 'OPEN_EXR_MULTILAYER'
-        file_output.format.color_depth = '32'
-        file_output.file_output_items.clear()
-        file_output.file_output_items.new('RGBA', 'depth')
-        file_output.file_output_items.new('RGBA', 'normal')
-        tree.links.new(render_layers.outputs['Depth'], file_output.inputs['depth'])
-        tree.links.new(render_layers.outputs['Normal'], file_output.inputs['normal'])
+        depth_node.directory = depth_dir
+        depth_node.format.file_format = 'OPEN_EXR_MULTILAYER'
+        depth_node.format.color_depth = '32'
+        depth_node.file_output_items.clear()
+        depth_node.file_output_items.new('RGBA', 'depth')
+        tree.links.new(render_layers.outputs['Depth'], depth_node.inputs['depth'])
+
+        normal_node.directory = normal_dir
+        normal_node.format.file_format = 'OPEN_EXR_MULTILAYER'
+        normal_node.format.color_depth = '32'
+        normal_node.file_output_items.clear()
+        normal_node.file_output_items.new('RGBA', 'normal')
+        tree.links.new(render_layers.outputs['Normal'], normal_node.inputs['normal'])
     else:
         # Blender 4.x API fallback
-        file_output.base_path = str(Path(output_dir).resolve())
-        file_output.format.file_format = 'OPEN_EXR'
-        file_output.format.color_depth = '32'
-        file_output.file_slots.clear()
-        file_output.file_slots.new("depth")
-        file_output.file_slots.new("normal")
-        tree.links.new(render_layers.outputs['Depth'], file_output.inputs['depth'])
-        tree.links.new(render_layers.outputs['Normal'], file_output.inputs['normal'])
+        depth_node.base_path = depth_dir
+        depth_node.format.file_format = 'OPEN_EXR'
+        depth_node.format.color_depth = '32'
+        depth_node.file_slots.clear()
+        depth_node.file_slots.new("depth")
+        tree.links.new(render_layers.outputs['Depth'], depth_node.inputs['depth'])
 
-    return file_output
+        normal_node.base_path = normal_dir
+        normal_node.format.file_format = 'OPEN_EXR'
+        normal_node.format.color_depth = '32'
+        normal_node.file_slots.clear()
+        normal_node.file_slots.new("normal")
+        tree.links.new(render_layers.outputs['Normal'], normal_node.inputs['normal'])
+
+    return depth_node, normal_node
 
 
 def run_dataset_generation():
@@ -294,7 +311,7 @@ def run_dataset_generation():
     # Configure hardware & scene
     configure_optix_gpu()
     cam_obj, cam_data = setup_scene(args.asset_path)
-    file_out_node = setup_compositor_nodes(str(out_dir))
+    depth_out_node, normal_out_node = setup_compositor_nodes(str(out_dir))
 
     # Configure resolution
     scene = bpy.context.scene
@@ -342,31 +359,38 @@ def run_dataset_generation():
         scene.cycles.use_denoising = True
         scene.render.filepath = str(gt_dir / f"{frame_name}.png")
 
-        if hasattr(file_out_node, "file_name"):
-            file_out_node.file_name = frame_name
-            gbuffer_file = f"gbuffers/{frame_name}.exr"
+        if hasattr(depth_out_node, "file_name"):
+            depth_out_node.file_name = frame_name
+            normal_out_node.file_name = frame_name
+            depth_file = f"depth/{frame_name}.exr"
+            normal_file = f"normal/{frame_name}.exr"
         else:
-            file_out_node.file_slots["depth"].path = f"depth/{frame_name}_"
-            file_out_node.file_slots["normal"].path = f"normal/{frame_name}_"
-            gbuffer_file = f"depth/{frame_name}_0001.exr"
+            depth_out_node.file_slots["depth"].path = f"{frame_name}_"
+            normal_out_node.file_slots["normal"].path = f"{frame_name}_"
+            depth_file = f"depth/{frame_name}_0001.exr"
+            normal_file = f"normal/{frame_name}_0001.exr"
 
-        file_out_node.mute = False
+        depth_out_node.mute = False
+        normal_out_node.mute = False
         bpy.ops.render.render(write_still=True)
 
         # 3. Render Draft Input (raw noisy Monte Carlo input, e.g. 2 samples)
         scene.cycles.samples = args.samples_draft
         scene.cycles.use_denoising = False
         scene.render.filepath = str(draft_dir / f"{frame_name}.png")
-        # Mute file output node so we do not re-write G-buffers
-        file_out_node.mute = True
+        # Mute file output nodes so we do not re-write G-buffers
+        depth_out_node.mute = True
+        normal_out_node.mute = True
         bpy.ops.render.render(write_still=True)
-        file_out_node.mute = False
+        depth_out_node.mute = False
+        normal_out_node.mute = False
 
         # 4. Append metadata frame
         metadata["frames"].append({
             "file_path_gt": f"ground_truth/{frame_name}.png",
             "file_path_draft": f"draft/{frame_name}.png",
-            "file_path_gbuffer": gbuffer_file,
+            "file_path_depth": depth_file,
+            "file_path_normal": normal_file,
             "transform_matrix": mat4.tolist(),
             "azimuth_deg": vp['azimuth_deg'],
             "elevation_deg": vp['elevation_deg']
