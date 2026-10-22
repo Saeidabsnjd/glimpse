@@ -30,3 +30,6 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Private Notes & Math Handbooks
+Mathematical_Foundations.md

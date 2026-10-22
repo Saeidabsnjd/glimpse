@@ -213,7 +213,6 @@ def setup_compositor_nodes(output_dir):
     Configures the Blender Compositor to export:
     - Normal Pass (Camera Space)
     - Depth Pass (Metric Z)
-    Supports both Blender 5.x (compositing_node_group) and Blender 4.x (scene.node_tree).
     """
     scene = bpy.context.scene
     view_layer = scene.view_layers["ViewLayer"]
