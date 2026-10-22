@@ -9,10 +9,12 @@ __pycache__/
 # 3D assets & Blender auto-saves
 *.blend1
 *.blend2
-*.exr
 
 # Datasets and rendered outputs
-/data/
+# General data folders are ignored, but the 48-view benchmark dataset is whitelisted
+/data/*
+!/data/orbit48_gt512/
+!/data/orbit48_gt512/**
 /dataset/
 renders/
 output/
