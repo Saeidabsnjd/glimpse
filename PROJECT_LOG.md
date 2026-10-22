@@ -99,14 +99,18 @@ All future modules written for this codebase must strictly adhere to these verif
   * Stage 6: Mixed Reality Deployment & Optimization (ONNX/TensorRT FP16 compilation for Meta Quest 3 / Vision Pro at $60+\text{ FPS}$).
 
 ### Milestone 4: Automated Blender Dataset Engine (`src/data/dataset_engine.py`)
-* **File**: [dataset_engine.py](file:///c:/Users/Saeed/.gemini/antigravity/scratch/blender/src/data/dataset_engine.py)
-* **Status**: Complete headless pipeline for Blender 5.x.
-* **Key Mechanisms**:
-  * Hardware Acceleration: Explicit OptiX GPU detection targeting NVIDIA RTX workstations with CUDA fallback for Turing GTX cards.
-  * Material Calibration: Principled BSDF with calibrated human skin Subsurface Scattering (Radius: [1.0, 0.2, 0.1], Scale: 0.005m / 5mm, IOR: 1.4).
-  * Multi-Pass Compositor: Uses dedicated dual output nodes for depth (`depth/view_XXX.exr`) and normal (`normal/view_XXX.exr`), guaranteeing unpartitioned single-part OpenEXR streams that load in sub-millisecond Python times.
-  * Automated Orbit Rendering: Loops over viewpoints from `camera_orbit.py`, renders paired 512-spp ground truth and 2-spp draft inputs, and exports camera intrinsics/extrinsics to `transforms.json`.
-  * **Critical Calibration (Denoising Toggle)**: Blender 5.2 enables OpenImageDenoise (`use_denoising = True`) by default. The engine now explicitly enforces `scene.cycles.use_denoising = False` on the draft pass to guarantee true raw, noisy Monte Carlo inputs while keeping `use_denoising = True` on the ground-truth reference.
+* **File**: [dataset_engine.py](file:///c:/Users/IXLAB/Desktop/Saeid%20Abbasnejad/glimpse/src/data/dataset_engine.py)
+* **Status**: Complete headless pipeline verified on Blender 4.4 with RTX 3060 Ti OptiX acceleration.
+* **Key Mechanisms & Bug Fixes**:
+  * **Hardware Acceleration**: Explicit OptiX GPU detection targeting NVIDIA RTX workstations with CUDA fallback.
+  * **Photorealistic SSS Calibration**:
+    * Method: `RANDOM_WALK_SKIN` dual-mean-free-path model.
+    * Weight: `1.0`, Radius: `(1.0, 0.35, 0.12)`, Scale: `0.04m` (calibrated for human head / mesh scale), IOR: `1.4`.
+    * Forward Anisotropy: `0.75` for forward scattering through ears and thin facial features.
+    * Lighting: Calibrated warm key light plus dual balanced warm rim/back lights (`color = (1.0, 0.95, 0.90)`) placed behind ears to ensure translucent cartilage glow across all 360° orbit viewpoints.
+  * **Multi-View Compositor Bug Fix**: Resolved `KeyError: 'bpy_prop_collection[key]: key "depth" not found'` caused by mutating slot `.path` on previous frames; now accesses slot `[0]` directly.
+  * **Clean EXR Renaming**: Frame-stamped outputs (`view_XXX_0001.exr`) are automatically normalized to `depth/view_XXX.exr` and `normal/view_XXX.exr` matching `ground_truth/view_XXX.png`.
+  * **Draft vs Ground-Truth Denoising**: Enforces `scene.cycles.use_denoising = False` on 2-spp draft inputs while enabling OpenImageDenoise on high-spp ground truth references.
 
 ---
 
@@ -127,7 +131,7 @@ When working on the TU Dresden lab workstation:
    ```bash
    git pull origin main
    ```
-2. Launch the full high-sample dataset generation on the RTX 3060 Ti:
+2. Launch the full high-sample dataset generation on the RTX 3060 Ti (using Blender 4.4):
    ```cmd
-   "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" --background --python src\data\dataset_engine.py -- --output_dir data\orbit48_gt512 --n_azimuth 12 --n_elevation 4 --samples_gt 512 --samples_draft 2 --resolution 512
+   "C:\Program Files\Blender Foundation\Blender 4.4\blender.exe" --background --python src\data\dataset_engine.py -- --output_dir data\orbit48_gt512 --n_azimuth 12 --n_elevation 4 --samples_gt 512 --samples_draft 2 --resolution 512
    ```

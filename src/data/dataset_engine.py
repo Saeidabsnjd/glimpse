@@ -90,10 +90,12 @@ def create_calibrated_sss_material(name="Skin_SSS_Material"):
     Creates a photorealistic translucent skin material using Blender's Principled BSDF.
     
     Subsurface Scattering Parameters:
-        - Subsurface Weight: 0.85 (translucency strength)
-        - Subsurface Radius: (1.0, 0.2, 0.1) (Red penetrates 10x deeper than Blue)
-        - Subsurface Scale: 0.05 meters (skin layer depth)
+        - Subsurface Method: RANDOM_WALK_SKIN (dual mean-free-path skin model)
+        - Subsurface Weight: 1.0 (full BSSRDF evaluation)
+        - Subsurface Radius: (1.0, 0.35, 0.12) (Red penetrates ~8x deeper than Blue)
+        - Subsurface Scale: 0.04 meters (calibrated for mesh geometry)
         - Subsurface IOR: 1.4 (Human epidermis index of refraction)
+        - Subsurface Anisotropy: 0.75 (forward scattering for backlit translucency)
     """
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
@@ -110,24 +112,34 @@ def create_calibrated_sss_material(name="Skin_SSS_Material"):
     bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
     bsdf.location = (0, 0)
 
-    # Human skin base tone (soft Caucasian / Mediterranean skin tone)
-    bsdf.inputs['Base Color'].default_value = (0.82, 0.62, 0.52, 1.0)
-    bsdf.inputs['Roughness'].default_value = 0.35
+    # Human skin base tone
+    bsdf.inputs['Base Color'].default_value = (0.84, 0.62, 0.50, 1.0)
+    bsdf.inputs['Roughness'].default_value = 0.32
+
+    # Activate Random Walk Skin if available
+    if hasattr(bsdf, 'subsurface_method'):
+        try:
+            bsdf.subsurface_method = 'RANDOM_WALK_SKIN'
+        except Exception:
+            bsdf.subsurface_method = 'RANDOM_WALK'
 
     # Calibrated Subsurface Scattering inputs (Blender 4.x / 5.x socket names)
     if 'Subsurface Weight' in bsdf.inputs:
-        bsdf.inputs['Subsurface Weight'].default_value = 0.85
+        bsdf.inputs['Subsurface Weight'].default_value = 1.0
     elif 'Subsurface' in bsdf.inputs:
-        bsdf.inputs['Subsurface'].default_value = 0.85
+        bsdf.inputs['Subsurface'].default_value = 1.0
 
     if 'Subsurface Radius' in bsdf.inputs:
-        bsdf.inputs['Subsurface Radius'].default_value = (1.0, 0.2, 0.1)
+        bsdf.inputs['Subsurface Radius'].default_value = (1.0, 0.35, 0.12)
 
     if 'Subsurface Scale' in bsdf.inputs:
-        bsdf.inputs['Subsurface Scale'].default_value = 0.005
+        bsdf.inputs['Subsurface Scale'].default_value = 0.04
 
     if 'Subsurface IOR' in bsdf.inputs:
         bsdf.inputs['Subsurface IOR'].default_value = 1.4
+
+    if 'Subsurface Anisotropy' in bsdf.inputs:
+        bsdf.inputs['Subsurface Anisotropy'].default_value = 0.75
 
     links.new(bsdf.outputs['BSDF'], node_out.inputs['Surface'])
 
@@ -143,30 +155,46 @@ def setup_scene(asset_path=None):
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
 
-    # Create Studio Lighting (Key Light, Fill Light, Rim Light)
-    # 1. Key light (Warm sun)
+    # Create Studio Lighting (Key Light, Fill Light, Dual Rim Lights for SSS)
+    # 1. Key light (Warm sunlight)
     key_light_data = bpy.data.lights.new(name="Key_Light", type='POINT')
     key_light_data.energy = 500.0
-    key_light_data.color = (1.0, 0.95, 0.9)
-    key_light_data.shadow_soft_size = 0.1
+    key_light_data.shadow_soft_size = 0.15
+    key_light_data.color = (1.0, 0.96, 0.92)
     key_light = bpy.data.objects.new(name="Key_Light", object_data=key_light_data)
-    key_light.location = (2.0, -2.0, 2.5)
+    key_light.location = (1.8, -1.8, 1.5)
     bpy.context.collection.objects.link(key_light)
 
-    # 2. Rim/Back light (Cool light for SSS edge translucency)
-    rim_light_data = bpy.data.lights.new(name="Rim_Light", type='POINT')
-    rim_light_data.energy = 700.0
-    rim_light_data.color = (0.85, 0.92, 1.0)
-    rim_light = bpy.data.objects.new(name="Rim_Light", object_data=rim_light_data)
-    rim_light.location = (-1.5, 2.0, 1.5)
-    bpy.context.collection.objects.link(rim_light)
+    # 2. Cool Fill light
+    fill_light_data = bpy.data.lights.new(name="Fill_Light", type='POINT')
+    fill_light_data.energy = 100.0
+    fill_light_data.color = (0.75, 0.85, 1.0)
+    fill_light = bpy.data.objects.new(name="Fill_Light", object_data=fill_light_data)
+    fill_light.location = (-1.8, -1.2, 0.6)
+    bpy.context.collection.objects.link(fill_light)
 
-    # 3. Soft ambient fill
+    # 3. Left Rim/Back light (for SSS edge translucency through ears)
+    rim_l_data = bpy.data.lights.new(name="Rim_Light_L", type='POINT')
+    rim_l_data.energy = 450.0
+    rim_l_data.color = (1.0, 0.95, 0.90)
+    rim_l = bpy.data.objects.new(name="Rim_Light_L", object_data=rim_l_data)
+    rim_l.location = (-1.3, 1.3, 0.4)
+    bpy.context.collection.objects.link(rim_l)
+
+    # 4. Right Rim/Back light (for SSS edge translucency through ears)
+    rim_r_data = bpy.data.lights.new(name="Rim_Light_R", type='POINT')
+    rim_r_data.energy = 450.0
+    rim_r_data.color = (1.0, 0.95, 0.90)
+    rim_r = bpy.data.objects.new(name="Rim_Light_R", object_data=rim_r_data)
+    rim_r.location = (1.3, 1.3, 0.4)
+    bpy.context.collection.objects.link(rim_r)
+
+    # 5. Soft ambient fill
     bpy.context.scene.world.use_nodes = True
     bg_node = bpy.context.scene.world.node_tree.nodes.get("Background")
     if bg_node:
         bg_node.inputs['Color'].default_value = (0.05, 0.05, 0.06, 1.0)
-        bg_node.inputs['Strength'].default_value = 0.4
+        bg_node.inputs['Strength'].default_value = 0.3
 
     # Load 3D Asset or generate test bust
     if asset_path and os.path.exists(asset_path):
@@ -304,8 +332,13 @@ def run_dataset_generation():
     out_dir = Path(args.output_dir).resolve()
     gt_dir = out_dir / "ground_truth"
     draft_dir = out_dir / "draft"
+    depth_dir = out_dir / "depth"
+    normal_dir = out_dir / "normal"
+
     gt_dir.mkdir(parents=True, exist_ok=True)
     draft_dir.mkdir(parents=True, exist_ok=True)
+    depth_dir.mkdir(parents=True, exist_ok=True)
+    normal_dir.mkdir(parents=True, exist_ok=True)
 
     # Configure hardware & scene
     configure_optix_gpu()
@@ -361,17 +394,29 @@ def run_dataset_generation():
         if hasattr(depth_out_node, "file_name"):
             depth_out_node.file_name = frame_name
             normal_out_node.file_name = frame_name
-            depth_file = f"depth/{frame_name}.exr"
-            normal_file = f"normal/{frame_name}.exr"
         else:
-            depth_out_node.file_slots["depth"].path = f"{frame_name}_"
-            normal_out_node.file_slots["normal"].path = f"{frame_name}_"
-            depth_file = f"depth/{frame_name}_0001.exr"
-            normal_file = f"normal/{frame_name}_0001.exr"
+            # Blender 4.x: Access by index [0] to avoid KeyError after path rename
+            depth_out_node.file_slots[0].path = f"{frame_name}_"
+            normal_out_node.file_slots[0].path = f"{frame_name}_"
 
         depth_out_node.mute = False
         normal_out_node.mute = False
         bpy.ops.render.render(write_still=True)
+
+        # Rename Blender's frame-stamped EXRs (e.g. view_000_0001.exr -> view_000.exr)
+        raw_depth = depth_dir / f"{frame_name}_0001.exr"
+        clean_depth = depth_dir / f"{frame_name}.exr"
+        if raw_depth.exists():
+            if clean_depth.exists():
+                clean_depth.unlink()
+            raw_depth.replace(clean_depth)
+
+        raw_normal = normal_dir / f"{frame_name}_0001.exr"
+        clean_normal = normal_dir / f"{frame_name}.exr"
+        if raw_normal.exists():
+            if clean_normal.exists():
+                clean_normal.unlink()
+            raw_normal.replace(clean_normal)
 
         # 3. Render Draft Input (raw noisy Monte Carlo input, e.g. 2 samples)
         scene.cycles.samples = args.samples_draft
@@ -388,8 +433,8 @@ def run_dataset_generation():
         metadata["frames"].append({
             "file_path_gt": f"ground_truth/{frame_name}.png",
             "file_path_draft": f"draft/{frame_name}.png",
-            "file_path_depth": depth_file,
-            "file_path_normal": normal_file,
+            "file_path_depth": f"depth/{frame_name}.exr",
+            "file_path_normal": f"normal/{frame_name}.exr",
             "transform_matrix": mat4.tolist(),
             "azimuth_deg": vp['azimuth_deg'],
             "elevation_deg": vp['elevation_deg']
